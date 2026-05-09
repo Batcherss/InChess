@@ -1,36 +1,28 @@
-# InChess: Advanced Chess Analysis Framework
+# InChess
 
-A high-performance browser extension for real-time chess data visualization and behavioral simulation. Built with a focus on minimalist UX and high-fidelity execution.
-
-## Overview
-
-InChess provides a sophisticated analytical layer over chess platforms, utilizing custom search algorithms and advanced DOM manipulation to enhance the tactical experience.
+High-performance browser extension for chess analysis and automation.
 
 <p align="center">
-  <img src="git/1.png" width="45%" alt="Interface Preview" />
-  <img src="git/2.png" width="45%" alt="Analytical Core" />
+  <img src="git/1.png" width="48%" alt="Interface" />
+  <img src="git/2.png" width="48%" alt="Logic" />
 </p>
-<p align="center"><i>Visualizing tactical depth with Godlike Precision and a premium monochrome aesthetic.</i></p>
 
-## Key Features
+## Features
 
-* **Behavioral Simulation:** Implements human-like input emulation via linear path interpolation and adaptive timing logic.
-* **Analytical Engine:** Integrated search core with iterative deepening and transposition tables for near-instant tactical evaluation.
-* **Stealth Integration:** Pure DOM-based interaction logic that operates without script injection or global namespace pollution.
-* **Neuro-Protect UI:** Dynamic data masking for streaming, including real-time nickname and avatar replacement.
-
-## Technical Stack
-
-* **Logic:** JavaScript (ES6+)
-* **UI/UX:** Instrument Sans Typography / Custom CSS Grid
-* **Communication:** Chrome Runtime Messaging API
+- Behavioral Emulation: Human-like mouse movement and timing.
+- Analytical Core: Custom search engine with iterative deepening.
+- Stealth Logic: DOM-based operation without script injection.
+- Content Protection: Real-time nickname and avatar masking.
 
 ## Installation
 
-1. Clone the repository.
+1. Clone this repository.
 2. Open chrome://extensions/ in your browser.
 3. Enable Developer Mode.
-4. Click Load Unpacked and select the project directory.
+4. Click Load Unpacked and select the project folder.
 
----
-*Created for educational research in behavioral analysis and automation.*
+## Technical Stack
+
+- JavaScript (ES6+)
+- Chrome Extension API (v3)
+- Custom CSS Grid
