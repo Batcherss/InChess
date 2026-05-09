@@ -25,6 +25,10 @@ This software is for educational and research purposes only. The author is not r
 3. Enable Developer Mode.
 4. Click Load Unpacked and select the project folder.
 
+## How to use?
+
+Just open chess-com and it.
+
 ## Technical Stack
 
 - JavaScript (ES6+)
