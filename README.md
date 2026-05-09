@@ -7,8 +7,8 @@ A high-performance browser extension for real-time chess data visualization and 
 InChess provides a sophisticated analytical layer over chess platforms, utilizing custom search algorithms and advanced DOM manipulation to enhance the tactical experience.
 
 <p align="center">
-  <img src="your-image-1-link.png" width="45%" alt="Interface Preview" />
-  <img src="your-image-2-link.png" width="45%" alt="Analytical Core" />
+  <img src="git/1.png" width="45%" alt="Interface Preview" />
+  <img src="git/2.png" width="45%" alt="Analytical Core" />
 </p>
 <p align="center"><i>Visualizing tactical depth with Godlike Precision and a premium monochrome aesthetic.</i></p>
 
