@@ -27,7 +27,7 @@ This software is for educational and research purposes only. The author is not r
 
 ## How to use?
 
-Just open chess-com and it.
+Just open chess-com and you're all set.
 
 ## Technical Stack
 
