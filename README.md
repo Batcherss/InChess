@@ -2,6 +2,10 @@
 
 High-performance browser extension for chess analysis and automation.
 
+# Disclaimer!!
+
+This software is for educational and research purposes only. The author is not responsible for any misuse of the tool or any violations of third-party Terms of Service (ToS). Use at your own risk. The author assumes no liability for account bans or any other consequences resulting from the use of this software.
+
 <p align="center">
   <img src="git/1.png" width="48%" alt="Interface" />
   <img src="git/2.png" width="48%" alt="Logic" />
