@@ -86,11 +86,7 @@ This software is for educational and research purposes only. The author is not r
 3. Toggle features you want in **Attack**, **Visuals**, and **Misc** tabs.
 4. If you want to play safely — enable **Elo Limiter** in the Attack tab and set the level to `Auto`.
 5. For full power (private games only) — set Elo Limiter to `Max`.
-
-## Hotkeys
-
-- `Alt + I` — hide / show the menu.
-
+6. 
 ## Technical Stack
 
 - JavaScript (ES6+)
