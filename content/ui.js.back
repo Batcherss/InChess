@@ -1,0 +1,1701 @@
+window.InChess = window.InChess || {};
+window.InChess.ui = (function () {
+  function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    return `${r}, ${g}, ${b}`;
+  }
+
+  function rgbToHex(r, g, b) {
+    const h = (n) => n.toString(16).padStart(2, '0');
+    return `#${h(r)}${h(g)}${h(b)}`;
+  }
+
+  function hsvToRgb(h, s, v) {
+    let r, g, b;
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      default: r = v; g = p; b = q; break;
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  }
+
+  function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h /= 6;
+      if (h < 0) h += 1;
+    }
+    const s = max === 0 ? 0 : d / max;
+    return [h, s, max];
+  }
+
+  const ICONS = {
+    calc: `<div class="in-spin"></div>`,
+    success: `<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>`,
+    error: `<svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>`,
+    info: `<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>`
+  };
+
+  const TITLES = {
+    calc: 'Analysis',
+    success: 'Success',
+    error: 'Error',
+    info: 'Info'
+  };
+
+  class Notifier {
+    constructor() {
+      const oldIn = document.getElementById('in-notifs');
+      const oldCel = document.getElementById('in-notifs-celestial');
+      if (oldIn) oldIn.remove();
+      if (oldCel) oldCel.remove();
+      this.inrouteContainer = this.createInroute();
+      this.celestialContainer = this.createCelestial();
+      this.getMenu = null;
+      this.inject();
+    }
+    createInroute() {
+      const el = document.createElement('div');
+      el.id = 'in-notifs';
+      Object.assign(el.style, { position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', zIndex: '1000000', display: 'flex', flexDirection: 'column-reverse', gap: '8px', pointerEvents: 'none' });
+      document.body.appendChild(el);
+      return el;
+    }
+    createCelestial() {
+      const el = document.createElement('div');
+      el.id = 'in-notifs-celestial';
+      Object.assign(el.style, { position: 'fixed', bottom: '24px', right: '24px', zIndex: '1000000', display: 'flex', flexDirection: 'column-reverse', gap: '6px', pointerEvents: 'none' });
+      document.body.appendChild(el);
+      return el;
+    }
+    inject() {
+      const old = document.getElementById('in-styles');
+      if (old) old.remove();
+      const s = document.createElement('style');
+      s.id = 'in-styles';
+      s.textContent = `
+      :root { --in-accent: #c23a2b; --in-accent-rgb: 194, 58, 43; }
+      .in-toast {
+        background: #0a0908;
+        border: 1px solid rgba(var(--in-accent-rgb), 0.3);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        color: #e8e4e1;
+        height: 26px;
+        padding: 0 12px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 200px;
+        transform: translateY(40px);
+        opacity: 0;
+        transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28), opacity 0.3s ease;
+        white-space: nowrap;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 11px;
+        font-weight: 300;
+        pointer-events: auto;
+      }
+      .in-toast.show { transform: translateY(0); opacity: 1; }
+      .in-toast.hide { transform: translateY(-40px); opacity: 0; }
+      .in-toast .in-icon { display: flex; align-items: center; justify-content: center; width: 13px; height: 13px; }
+      .in-toast .in-icon svg { width: 100%; height: 100%; }
+      .in-toast .color-success { color: var(--in-accent); fill: var(--in-accent); }
+      .in-toast .color-error { color: var(--in-accent); fill: var(--in-accent); }
+      .in-toast .color-info { color: var(--in-accent); fill: var(--in-accent); }
+
+      .in-celestial {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 14px;
+        background: #0a0908;
+        border-top: 1px solid rgba(var(--in-accent-rgb), 0.25);
+        border-bottom: 1px solid rgba(var(--in-accent-rgb), 0.25);
+        min-width: 240px;
+        max-width: 360px;
+        opacity: 0;
+        transform: translateX(120%);
+        transition: transform 0.45s cubic-bezier(0.18, 0.89, 0.32, 1.28), opacity 0.3s ease;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        pointer-events: auto;
+        will-change: transform, opacity;
+      }
+      .in-celestial.show { opacity: 1; transform: translateX(0); }
+      .in-celestial.hide { opacity: 0; transform: translateX(120%); }
+      .in-celestial-icon {
+        flex-shrink: 0;
+        width: 24px; height: 24px;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--in-accent);
+      }
+      .in-celestial-icon svg { width: 20px; height: 20px; fill: var(--in-accent); }
+      .in-celestial-icon .in-spin { width: 18px; height: 18px; border-width: 2px; }
+      .in-celestial-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .in-celestial-title { font-size: 11px; color: #e8e4e1; font-weight: 400; letter-spacing: 0.3px; }
+      .in-celestial-desc { font-size: 10px; color: #a39e9a; font-weight: 300; white-space: normal; word-break: break-word; }
+      .in-celestial-desc .move-text { color: var(--in-accent); }
+
+      .in-spin { width: 11px; height: 11px; border: 1.2px solid rgba(var(--in-accent-rgb), 0.2); border-top-color: var(--in-accent); border-radius: 50%; animation: in-s 0.6s linear infinite; }
+      @keyframes in-s { to { transform: rotate(360deg); } }
+      .move-text { font-family: ui-monospace, monospace; font-weight: 400; color: var(--in-accent); }
+      `;
+      document.head.appendChild(s);
+    }
+
+    shouldShow(type) {
+      const menu = this.getMenu && this.getMenu();
+      if (!menu || !menu.settings) return true;
+      const s = menu.settings;
+      if (!s.notifEnabled) return false;
+      if (type === 'calc' && s.notifCalc === false) return false;
+      if (type === 'success' && s.notifSuccess === false) return false;
+      if (type === 'error' && s.notifError === false) return false;
+      if (type === 'info' && s.notifInfo === false) return false;
+      return true;
+    }
+
+    show({ type, title, text, persist = false }) {
+      if (!this.shouldShow(type)) return null;
+      const menu = this.getMenu && this.getMenu();
+      const style = (menu && menu.settings && menu.settings.notifStyle) || 'inroute';
+      if (style === 'celestial') return this.showCelestial({ type, title, text, persist });
+      return this.showInroute({ type, text, persist });
+    }
+
+    showInroute({ type, text, persist }) {
+      const el = document.createElement('div');
+      el.className = 'in-toast';
+      el.dataset.style = 'inroute';
+      let iconHTML = '';
+      if (type === 'calc') iconHTML = `<div class="in-spin"></div>`;
+      else if (type === 'success') iconHTML = `<div class="in-icon color-success"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg></div>`;
+      else if (type === 'error') iconHTML = `<div class="in-icon color-error"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg></div>`;
+      else if (type === 'info') iconHTML = `<div class="in-icon color-info"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></div>`;
+      el.innerHTML = `${iconHTML}<span>${text}</span>`;
+      this.inrouteContainer.appendChild(el);
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => el.classList.add('show'));
+      });
+
+      if (!persist) {
+        setTimeout(() => {
+          el.classList.remove('show');
+          setTimeout(() => { if (el.parentNode) el.remove(); }, 450);
+        }, 3000);
+      }
+      return el;
+    }
+
+    showCelestial({ type, title, text, persist }) {
+      const el = document.createElement('div');
+      el.className = 'in-celestial';
+      el.dataset.style = 'celestial';
+      const mainTitle = title || TITLES[type] || 'InChess';
+      const desc = text || '';
+      const iconHTML = ICONS[type] || ICONS.info;
+      el.innerHTML = `
+                <div class="in-celestial-icon">${iconHTML}</div>
+                <div class="in-celestial-body">
+                    <div class="in-celestial-title">${mainTitle}</div>
+                    <div class="in-celestial-desc">${desc}</div>
+                </div>
+            `;
+      this.celestialContainer.appendChild(el);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => el.classList.add('show'));
+      });
+
+      if (!persist) {
+        setTimeout(() => {
+          el.classList.remove('show');
+          setTimeout(() => { if (el.parentNode) el.remove(); }, 500);
+        }, 3000);
+      }
+      return el;
+    }
+
+    updateText(handle, newText) {
+      if (!handle) return;
+      if (handle.dataset.style === 'celestial') {
+        const desc = handle.querySelector('.in-celestial-desc');
+        if (desc) desc.innerHTML = newText;
+      } else {
+        const span = handle.querySelector('span');
+        if (span) span.innerHTML = newText;
+      }
+    }
+
+    clear() {
+      this.inrouteContainer.innerHTML = '';
+      this.celestialContainer.innerHTML = '';
+    }
+  }
+
+  class Viz {
+    constructor() {
+      this.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      Object.assign(this.svg.style, { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: '2000' });
+      this.thoughtEl = null;
+    }
+    attach(board) {
+      if (getComputedStyle(board).position === 'static') board.style.position = 'relative';
+      if (!this.svg.parentElement) board.appendChild(this.svg);
+    }
+    drawThought(uci, color) {
+      const board = document.querySelector('wc-chess-board, .board, #board-play-computer');
+      if (!board || !uci || uci.length < 4) return;
+      this.attach(board);
+      this.clearThought();
+      const rect = board.getBoundingClientRect();
+      const sq = rect.width / 8;
+      const isFlipped = board.classList.contains('flipped');
+      const getPos = (u) => {
+        let c = u.charCodeAt(0) - 96;
+        let r = parseInt(u[1]);
+        if (isFlipped) { c = 9 - c; r = 9 - r; }
+        return { x: (c - 0.5) * sq, y: (8.5 - r) * sq };
+      };
+      try {
+        const p1 = getPos(uci.substring(0, 2)), p2 = getPos(uci.substring(2, 4));
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", p1.x); line.setAttribute("y1", p1.y);
+        line.setAttribute("x2", p2.x); line.setAttribute("y2", p2.y);
+        line.setAttribute("stroke", color || "#ffeb3b");
+        line.setAttribute("stroke-width", "3");
+        line.setAttribute("stroke-dasharray", "6 4");
+        line.setAttribute("opacity", "0.65");
+        line.setAttribute("stroke-linecap", "round");
+        const circ = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circ.setAttribute("cx", p2.x); circ.setAttribute("cy", p2.y);
+        circ.setAttribute("r", sq / 4.5);
+        circ.setAttribute("fill", color || "#ffeb3b");
+        circ.setAttribute("opacity", "0.22");
+        g.appendChild(line);
+        g.appendChild(circ);
+        this.svg.appendChild(g);
+        this.thoughtEl = g;
+      } catch (e) { }
+    }
+    clearThought() {
+      if (this.thoughtEl) { this.thoughtEl.remove(); this.thoughtEl = null; }
+    }
+    draw(uci, color, opacity = 0.8, isBrill = false, dashed = false) {
+      const board = document.querySelector('wc-chess-board, .board, #board-play-computer');
+      if (!board || !uci) return;
+      this.attach(board);
+      const rect = board.getBoundingClientRect();
+      const sq = rect.width / 8;
+      const isFlipped = board.classList.contains('flipped');
+      const getPos = (u) => {
+        let c = u.charCodeAt(0) - 96;
+        let r = parseInt(u[1]);
+        if (isFlipped) { c = 9 - c; r = 9 - r; }
+        return { x: (c - 0.5) * sq, y: (8.5 - r) * sq };
+      };
+      try {
+        const p1 = getPos(uci.substring(0, 2)), p2 = getPos(uci.substring(2, 4));
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", p1.x); line.setAttribute("y1", p1.y);
+        line.setAttribute("x2", p2.x); line.setAttribute("y2", p2.y);
+        line.setAttribute("stroke", isBrill ? "#00e5ff" : color);
+        line.setAttribute("stroke-width", isBrill ? 7 : 5);
+        line.setAttribute("opacity", isBrill ? 1.0 : opacity);
+        line.setAttribute("stroke-linecap", "round");
+        if (dashed) line.setAttribute("stroke-dasharray", "8 6");
+        const circ = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circ.setAttribute("cx", p2.x); circ.setAttribute("cy", p2.y);
+        circ.setAttribute("r", isBrill ? sq / 3 : sq / 4);
+        circ.setAttribute("fill", "none");
+        circ.setAttribute("stroke", isBrill ? "#00e5ff" : color);
+        circ.setAttribute("stroke-width", isBrill ? 4 : 2.5);
+        circ.setAttribute("opacity", isBrill ? 1.0 : opacity);
+        if (dashed) circ.setAttribute("stroke-dasharray", "8 6");
+        if (isBrill) {
+          line.style.filter = "drop-shadow(0 0 8px #00e5ff)";
+          circ.style.filter = "drop-shadow(0 0 8px #00e5ff)";
+        }
+        this.svg.appendChild(line); this.svg.appendChild(circ);
+      } catch (e) { }
+    }
+    drawHeatmap(threats, isFlipped) {
+      const board = document.querySelector('wc-chess-board, .board, #board-play-computer');
+      if (!board || !threats || threats.length === 0) return;
+      this.attach(board);
+      this.clearHeatmap();
+      const rect = board.getBoundingClientRect();
+      const sq = rect.width / 8;
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      threats.forEach(t => {
+        let c = t.c, r = t.r;
+        if (isFlipped) { c = 7 - c; r = 7 - r; }
+        const x = c * sq, y = r * sq;
+        const rectEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rectEl.setAttribute("x", x + 3);
+        rectEl.setAttribute("y", y + 3);
+        rectEl.setAttribute("width", sq - 6);
+        rectEl.setAttribute("height", sq - 6);
+        rectEl.setAttribute("rx", 6);
+        if (t.type === 'check') {
+          rectEl.setAttribute("fill", "rgba(255, 30, 30, 0.45)");
+          rectEl.setAttribute("stroke", "#ff1744");
+          rectEl.setAttribute("stroke-width", "2.5");
+        } else if (t.type === 'danger') {
+          rectEl.setAttribute("fill", "rgba(255, 70, 70, 0.35)");
+          rectEl.setAttribute("stroke", "#ff5252");
+          rectEl.setAttribute("stroke-width", "1.5");
+        } else if (t.type === 'free') {
+          rectEl.setAttribute("fill", "rgba(76, 217, 100, 0.35)");
+          rectEl.setAttribute("stroke", "#00e676");
+          rectEl.setAttribute("stroke-width", "2");
+        }
+        g.appendChild(rectEl);
+      });
+      if (this.svg.firstChild) this.svg.insertBefore(g, this.svg.firstChild);
+      else this.svg.appendChild(g);
+      this.heatmapEl = g;
+    }
+    clearHeatmap() {
+      if (this.heatmapEl) { this.heatmapEl.remove(); this.heatmapEl = null; }
+    }
+    clear() { this.clearThought(); this.clearHeatmap(); this.svg.innerHTML = ''; }
+  }
+
+  class EvalBar {
+    constructor() {
+      this.el = document.createElement('div');
+      this.el.id = 'in-evalbar';
+      this.blackPart = document.createElement('div');
+      this.blackPart.className = 'in-eval-black';
+      this.whitePart = document.createElement('div');
+      this.whitePart.className = 'in-eval-white';
+      this.scoreText = document.createElement('div');
+      this.scoreText.className = 'in-eval-score';
+      this.scoreText.textContent = '0.0';
+      this.el.appendChild(this.blackPart);
+      this.el.appendChild(this.whitePart);
+      this.el.appendChild(this.scoreText);
+      document.body.appendChild(this.el);
+      this.visible = false;
+      this.score = 0;
+      this.getMenu = null;
+      const s = document.createElement('style');
+      s.textContent = `
+      #in-evalbar {
+        position: fixed;
+        width: 12px;
+        background: #121110;
+        border-radius: 3px;
+        overflow: hidden;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+        border: 1px solid rgba(var(--in-accent-rgb), 0.35);
+        z-index: 1000000;
+        display: none;
+        flex-direction: column;
+        pointer-events: none;
+      }
+      .in-eval-white { background: #f0ece9; width: 100%; transition: height 0.35s cubic-bezier(0.2,0.8,0.2,1); }
+      .in-eval-black { background: #1f1d1b; width: 100%; flex-grow: 1; }
+      .in-eval-score {
+        position: absolute; left: 0; right: 0; text-align: center;
+        font-family: ui-monospace, monospace; font-size: 7px; font-weight: 400;
+        color: #0a0908; pointer-events: none; z-index: 2;
+        text-shadow: 0 0 2px rgba(255,255,255,0.8);
+      }
+      .in-eval-score.is-dark { color: #f0ece9; text-shadow: 0 0 2px rgba(0,0,0,0.8); }
+      `;
+      document.head.appendChild(s);
+    }
+    updatePos() {
+      const menu = this.getMenu && this.getMenu();
+      if (!menu || !menu.settings || !menu.settings.evalBar) { this.el.style.display = 'none'; return; }
+      const board = document.querySelector('wc-chess-board, .board, #board-play-computer');
+      if (!board) { this.el.style.display = 'none'; return; }
+      const rect = board.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) { this.el.style.display = 'none'; return; }
+      let left = rect.left - 18;
+      if (left < 4) left = rect.right + 6;
+      this.el.style.left = `${left}px`;
+      this.el.style.top = `${rect.top}px`;
+      this.el.style.height = `${rect.height}px`;
+      this.el.style.display = 'flex';
+    }
+    update(centipawns, isFlipped = false) {
+      this.score = centipawns || 0;
+      const clamped = Math.max(-2000, Math.min(2000, this.score));
+      const whitePercent = 50 + 50 * (2 / (1 + Math.exp(-0.0036 * clamped)) - 1);
+      const clampedPercent = Math.max(5, Math.min(95, whitePercent));
+      this.el.style.flexDirection = isFlipped ? 'column-reverse' : 'column';
+      this.whitePart.style.height = `${clampedPercent}%`;
+      let displayVal;
+      if (Math.abs(this.score) >= 15000) {
+        const mateIn = Math.ceil(Math.abs(25000 - Math.abs(this.score)) / 2);
+        displayVal = (this.score > 0 ? '+M' : '-M') + mateIn;
+      } else {
+        const val = (this.score / 100).toFixed(1);
+        displayVal = (this.score > 0 ? '+' : '') + val;
+      }
+      this.scoreText.textContent = displayVal;
+      if (clampedPercent > 50) {
+        this.scoreText.style.bottom = '4px';
+        this.scoreText.style.top = 'auto';
+        this.scoreText.classList.toggle('is-dark', isFlipped);
+      } else {
+        this.scoreText.style.top = '4px';
+        this.scoreText.style.bottom = 'auto';
+        this.scoreText.classList.toggle('is-dark', !isFlipped);
+      }
+      this.updatePos();
+    }
+    show() { this.visible = true; this.updatePos(); this.el.style.display = 'flex'; }
+    hide() { this.visible = false; this.el.style.display = 'none'; }
+  }
+
+  class ArrayList {
+    constructor() {
+      this.el = null;
+      this.getMenu = null;
+      this.lastSignature = '';
+      const s = document.createElement('style');
+      s.textContent = `
+      #in-arraylist {
+        position: fixed;
+        z-index: 1000000;
+        display: none;
+        flex-direction: column;
+        pointer-events: none;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      #in-arraylist.in-style-inroute {
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 300;
+        color: #e8e4e1;
+        padding: 4px 6px;
+      }
+      #in-arraylist.in-style-inroute.in-al-left { top: 4px; left: 4px; align-items: flex-start; }
+      #in-arraylist.in-style-inroute.in-al-right { top: 4px; right: 4px; align-items: flex-end; }
+      #in-arraylist.in-style-inroute .in-al-item {
+        opacity: 0;
+        transform: translateX(-10px);
+        transition: opacity 0.25s ease, transform 0.25s ease;
+      }
+      #in-arraylist.in-style-inroute.in-al-right .in-al-item { transform: translateX(10px); }
+      #in-arraylist.in-style-inroute .in-al-item.show { opacity: 1; transform: translateX(0); }
+      #in-arraylist.in-style-inroute .in-al-name { color: #e8e4e1; }
+      #in-arraylist.in-style-inroute .in-al-set { color: #7a7570; }
+      #in-arraylist.in-style-inroute.in-al-glow .in-al-item { text-shadow: 0 0 8px var(--in-accent), 0 0 16px rgba(var(--in-accent-rgb), 0.6); }
+      #in-arraylist.in-style-inroute.in-al-rainbow .in-al-name {
+        background: linear-gradient(90deg, var(--in-accent), rgba(var(--in-accent-rgb), 0.35), var(--in-accent));
+        background-size: 200% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: in-al-rb 3s linear infinite;
+      }
+
+      #in-arraylist.in-style-celestial {
+        gap: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        padding: 0;
+        line-height: 1.2;
+      }
+      #in-arraylist.in-style-celestial.in-al-left { top: 4px; left: 0; align-items: flex-start; }
+      #in-arraylist.in-style-celestial.in-al-right { top: 4px; right: 0; align-items: flex-end; }
+      #in-arraylist.in-style-celestial .in-al-item {
+        background: var(--in-accent);
+        padding: 2px 6px;
+        text-shadow: 1px 1px 0 rgba(0,0,0,0.4);
+        opacity: 0;
+        transform: translateX(-10px);
+        transition: opacity 0.25s ease, transform 0.25s ease;
+      }
+      #in-arraylist.in-style-celestial.in-al-right .in-al-item { transform: translateX(10px); }
+      #in-arraylist.in-style-celestial .in-al-item.show { opacity: 1; transform: translateX(0); }
+      #in-arraylist.in-style-celestial .in-al-name { color: #fff; }
+      #in-arraylist.in-style-celestial .in-al-set { color: rgba(255,255,255,0.7); font-weight: 400; }
+      #in-arraylist.in-style-celestial.in-al-glow .in-al-item { box-shadow: 0 0 8px var(--in-accent); }
+      #in-arraylist.in-style-celestial.in-al-rainbow .in-al-item {
+        background: linear-gradient(90deg, var(--in-accent), rgba(var(--in-accent-rgb), 0.5), var(--in-accent));
+        background-size: 200% 100%;
+        animation: in-al-rb-bg 3s linear infinite;
+      }
+
+      @keyframes in-al-rb { to { background-position: 200% 0; } }
+      @keyframes in-al-rb-bg { to { background-position: 200% 0; } }
+      `;
+      document.head.appendChild(s);
+    }
+    attach() {
+      if (this.el) return;
+      this.el = document.createElement('div');
+      this.el.id = 'in-arraylist';
+      document.body.appendChild(this.el);
+    }
+    update() {
+      const menu = this.getMenu && this.getMenu();
+      if (!menu) return;
+      const s = menu.settings;
+      if (!s.arrayList) {
+        if (this.el) this.el.style.display = 'none';
+        this.lastSignature = '';
+        return;
+      }
+      this.attach();
+      this.el.style.display = 'flex';
+
+      const style = s.arrayListStyle || 'inroute';
+      this.el.classList.toggle('in-style-inroute', style === 'inroute');
+      this.el.classList.toggle('in-style-celestial', style === 'celestial');
+
+      this.el.classList.toggle('in-al-left', s.arrayListPos === 'top-left');
+      this.el.classList.toggle('in-al-right', s.arrayListPos === 'top-right');
+      this.el.classList.toggle('in-al-glow', !!s.arrayListGlow);
+      this.el.classList.toggle('in-al-rainbow', !!s.arrayListRainbow);
+
+      if (s.watermark && s.watermarkStyle === 'rich' && s.arrayListPos === 'top-left') {
+        this.el.style.top = '52px';
+      } else {
+        this.el.style.top = '';
+      }
+
+      const br = s.arrayListBrackets || '[]';
+      const open = br[0], close = br[1];
+
+      const items = [];
+      if (s.detector) {
+        const d = s.depth === 'auto' ? 'auto' : s.depth + 'd';
+        items.push(['Detector', `${open}${d}${close}`]);
+      }
+      if (s.predicts) items.push(['Predicts', '']);
+      if (s.auto) {
+        const t = s.rnd ? `${s.rndMin}-${s.rndMax}s` : `${s.delay}s`;
+        items.push(['Auto', `${open}${t}${close}`]);
+      }
+      if (s.alts) items.push(['Alts', '']);
+      if (s.thoughts) items.push(['Thoughts', '']);
+      if (s.evalBar) items.push(['EvalBar', '']);
+      if (s.heatmap) items.push(['Heatmap', '']);
+      if (s.vo) items.push(['VO', '']);
+      if (s.protect) items.push(['Protect', '']);
+      if (s.watermark) items.push(['Watermark', '']);
+      if (s.notifEnabled) items.push(['Notifs', `${open}${s.notifStyle}${close}`]);
+
+      items.sort((a, b) => {
+        const lenA = a[0].length + (a[1] ? a[1].length : 0);
+        const lenB = b[0].length + (b[1] ? b[1].length : 0);
+        return lenB - lenA;
+      });
+
+      const sig = items.map(([n, set]) => n + '|' + set).join(';') + '|' + style;
+      if (sig === this.lastSignature) return;
+      this.lastSignature = sig;
+
+      this.el.innerHTML = items.map(([n, set]) =>
+        `<div class="in-al-item"><span class="in-al-name">${n}</span>${set ? ' <span class="in-al-set">' + set + '</span>' : ''}</div>`
+      ).join('');
+
+      const rows = this.el.querySelectorAll('.in-al-item');
+      rows.forEach((r, i) => setTimeout(() => r.classList.add('show'), i * 40));
+    }
+  }
+
+  class Watermark {
+    constructor() {
+      this.el = null;
+      this.getMenu = null;
+      const s = document.createElement('style');
+      s.textContent = `
+      #in-watermark {
+        position: fixed;
+        z-index: 1000000;
+        display: none;
+        align-items: center;
+        pointer-events: none;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        transition: all 0.3s ease;
+      }
+      
+      #in-watermark.in-wm-style-inroute {
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        gap: 10px;
+        padding: 6px 18px;
+        background: #050505;
+        border: 1px solid #1a1a1a;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 300;
+        color: #a39e9a;
+        white-space: nowrap;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      }
+      #in-watermark.in-wm-style-inroute .in-wm-logo { display: inline-block; white-space: nowrap; }
+      #in-watermark.in-wm-style-inroute .in-wm-brand {
+        color: var(--in-accent);
+        font-family: 'Syne', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-weight: 400;
+        letter-spacing: -0.5px;
+        animation: in-wm-pulse 3s infinite ease-in-out;
+      }
+      #in-watermark.in-wm-style-inroute .in-wm-val { color: #e8e4e1; font-variant-numeric: tabular-nums; }
+      #in-watermark.in-wm-style-inroute .in-wm-sep { color: #333; }
+      @keyframes in-wm-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+      #in-watermark.in-wm-style-rich {
+        top: 10px;
+        left: 3px;
+        background: #0a0a0a;
+        border: 1px solid #222;
+        border-left: 3px solid var(--in-accent);
+        border-radius: 2px;
+        padding: 4px 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        font-size: 12px;
+        font-weight: 300;
+        color: #fff;
+      }
+      #in-watermark.in-wm-style-rich .in-wm-rich-sep { color: #555; margin: 0 4px; font-weight: 400; }
+      #in-watermark.in-wm-style-rich .in-wm-rich-logo { color: #fff; }
+      `;
+      document.head.appendChild(s);
+    }
+    attach() {
+      if (this.el) return;
+      this.el = document.createElement('div');
+      this.el.id = 'in-watermark';
+      document.body.appendChild(this.el);
+    }
+    update(stats) {
+      const menu = this.getMenu && this.getMenu();
+      if (!menu) return;
+      const s = menu.settings;
+      if (!s.watermark) {
+        if (this.el) this.el.style.display = 'none';
+        return;
+      }
+      this.attach();
+      this.el.style.display = 'flex';
+
+      const style = s.watermarkStyle || 'inroute';
+      this.el.className = 'in-wm-style-' + style;
+
+      if (style === 'rich') {
+        const parts = [`<span class="in-wm-rich-logo">InChess</span>`];
+        if (s.watermarkShowFeatures) parts.push(`${stats.featureCount || 0} fn`);
+        if (s.watermarkShowMoves) parts.push(`Moves: ${stats.moves || 0}`);
+        if (s.watermarkShowWinrate) parts.push(`Winrate: ${stats.winrate || 50}%`);
+
+        this.el.innerHTML = parts.join(' <span class="in-wm-rich-sep">|</span> ');
+      } else {
+        const parts = [`<span class="in-wm-logo"><span class="in-wm-brand">In</span>Chess</span>`];
+        if (s.watermarkShowFeatures) parts.push(`<span class="in-wm-val">${stats.featureCount || 0}</span> fn`);
+        if (s.watermarkShowMoves) parts.push(`Moves: <span class="in-wm-val">${stats.moves || 0}</span>`);
+        if (s.watermarkShowWinrate) parts.push(`Winrate: <span class="in-wm-val">${stats.winrate || 50}%</span>`);
+
+        this.el.innerHTML = parts.join(' <span class="in-wm-sep">·</span> ');
+      }
+    }
+  }
+
+  class Menu {
+    constructor() {
+      this.settings = {
+        auto: false, delay: 1, alts: true, thoughts: false, evalBar: false, heatmap: false,
+        vo: false, color: '#c23a2b', x: null, y: null, rnd: false, rndMin: 1, rndMax: 3,
+        protect: false, detector: true, opacity: 1,
+        depth: 'auto', predicts: false,
+        arrayList: false, arrayListStyle: 'inroute', arrayListPos: 'top-left', arrayListGlow: false, arrayListRainbow: false, arrayListBrackets: '[]',
+        watermark: false, watermarkStyle: 'inroute', watermarkShowFeatures: true, watermarkShowMoves: true, watermarkShowWinrate: true,
+        notifEnabled: true, notifStyle: 'inroute',
+        notifCalc: true, notifSuccess: true, notifInfo: true, notifError: true,
+        collapsed: false
+      };
+      this.evalBar = null;
+      this.collapsed = false;
+      this.hidden = false;
+      this.idleTimer = null;
+      this.currentTab = 'attack';
+      this.expanded = { auto: false, detector: false, al: false, wm: false, notif: false };
+      this.init();
+    }
+
+    updateTheme(color) {
+      const rgb = hexToRgb(color);
+      document.documentElement.style.setProperty('--in-accent', color);
+      document.documentElement.style.setProperty('--in-accent-rgb', rgb);
+      document.querySelectorAll('#in-notifs, #in-notifs-celestial, #in-app, #in-arraylist, #in-watermark').forEach(el => {
+        el.style.setProperty('--in-accent', color);
+        el.style.setProperty('--in-accent-rgb', rgb);
+      });
+    }
+
+    async init() {
+      const saved = await chrome.storage.local.get('in_sets');
+      if (saved.in_sets) {
+        const allowed = ['auto', 'delay', 'alts', 'thoughts', 'evalBar', 'heatmap', 'vo', 'color', 'x', 'y', 'rnd', 'rndMin', 'rndMax', 'protect', 'detector', 'opacity', 'depth', 'predicts', 'arrayList', 'arrayListStyle', 'arrayListPos', 'arrayListGlow', 'arrayListRainbow', 'arrayListBrackets', 'watermark', 'watermarkStyle', 'watermarkShowFeatures', 'watermarkShowMoves', 'watermarkShowWinrate', 'notifEnabled', 'notifStyle', 'notifCalc', 'notifSuccess', 'notifInfo', 'notifError', 'collapsed'];
+        for (const k of allowed) if (saved.in_sets[k] !== undefined) this.settings[k] = saved.in_sets[k];
+      }
+      this.updateTheme(this.settings.color);
+      this.injectStyles();
+      this.render();
+      if (this.settings.evalBar && this.evalBar) this.evalBar.show();
+      if (this.settings.collapsed) this.setCollapsed(true);
+    }
+
+    injectStyles() {
+      const old = document.getElementById('in-app-styles');
+      if (old) old.remove();
+      const s = document.createElement('style');
+      s.id = 'in-app-styles';
+      s.textContent = `
+      #in-app *, #in-app *::before, #in-app *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      #in-app {
+        position: fixed;
+        z-index: 1000001;
+        width: 600px;
+        height: 400px;
+        max-width: 92vw;
+        max-height: 70vh;
+        background: #050505;
+        border: 1px solid #1a1a1a;
+        border-radius: 10px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.8);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-weight: 300;
+        color: #ececec;
+        overflow: hidden;
+        user-select: none;
+        -webkit-font-smoothing: antialiased;
+        display: flex;
+        flex-direction: column;
+        opacity: var(--in-opacity, 1);
+        transition: opacity 0.25s ease, width 0.25s cubic-bezier(0.4,0,0.2,1), height 0.25s cubic-bezier(0.4,0,0.2,1), border-radius 0.25s ease;
+      }
+      #in-app.in-hidden { display: none !important; }
+      #in-app.collapsed {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #0a0908;
+        opacity: 0.4;
+      }
+      #in-app.collapsed:hover { opacity: 1; }
+      #in-app.collapsed.in-idle { opacity: 0.15; }
+      #in-app.collapsed.in-idle:hover { opacity: 1; }
+      #in-app.collapsed .in-upper,
+      #in-app.collapsed .in-body { opacity: 0; pointer-events: none; }
+      #in-app.collapsed .in-collapse-strip { display: flex; }
+      #in-app .in-collapse-strip {
+        display: none;
+        position: absolute;
+        inset: 0;
+        align-items: center;
+        justify-content: center;
+        cursor: move;
+        color: var(--in-accent);
+        transition: color 0.2s;
+        touch-action: none;
+      }
+      #in-app .in-collapse-strip svg { width: 15px; height: 15px; }
+      #in-app .in-collapse-strip .in-arrow { animation: in-bounce 1.6s infinite ease-in-out; }
+      @keyframes in-bounce {
+        0%, 100% { transform: translateY(1px); }
+        50% { transform: translateY(-1px); }
+      }
+
+      #in-app .in-upper { position: relative; transition: opacity 0.2s ease; flex-shrink: 0; }
+      #in-app .in-topbar {
+        display: flex;
+        align-items: center;
+        padding: 10px 14px;
+        cursor: move;
+        position: relative;
+        justify-content: center;
+        touch-action: none;
+      }
+      #in-app .in-tabs-row { display: flex; justify-content: center; }
+      #in-app .in-icon-btn {
+        width: 22px; height: 22px;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 4px; cursor: pointer;
+        background: transparent; border: none; color: #666;
+        transition: color 0.15s; flex-shrink: 0;
+      }
+      #in-app .in-icon-btn:hover { color: var(--in-accent); }
+      #in-app .in-icon-btn svg { width: 14px; height: 14px; }
+      #in-app .in-actions {
+        display: flex; align-items: center; gap: 2px;
+        position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      }
+
+      #in-app .in-tabs {
+        position: relative;
+        display: flex;
+        gap: 2px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        padding: 2px;
+        border-radius: 16px;
+      }
+      #in-app .in-pill {
+        position: absolute; top: 2px; left: 2px;
+        height: calc(100% - 4px);
+        background: var(--in-accent);
+        border-radius: 14px;
+        transition: transform 0.3s cubic-bezier(0.4,0,0.2,1), width 0.3s cubic-bezier(0.4,0,0.2,1);
+        z-index: 1; pointer-events: none;
+      }
+      #in-app .in-tab {
+        position: relative; z-index: 2;
+        background: transparent; border: none;
+        color: #777; padding: 4px 14px;
+        font-family: inherit; font-size: 11px; font-weight: 300;
+        cursor: pointer; border-radius: 14px;
+        transition: color 0.2s; letter-spacing: 0.5px;
+      }
+      #in-app .in-tab:hover { color: #ccc; }
+      #in-app .in-tab.active { color: #000; font-weight: 400; }
+
+      #in-app .in-body {
+        position: relative; flex: 1; overflow: hidden;
+        transition: opacity 0.2s ease;
+      }
+      #in-app .in-pages {
+        display: flex; width: 400%; height: 100%;
+        transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+      }
+      #in-app .in-page {
+        width: 25%; height: 100%;
+        overflow-y: auto; padding: 4px 14px 14px;
+        display: flex; flex-direction: column;
+      }
+      #in-app .in-page::-webkit-scrollbar { width: 4px; }
+      #in-app .in-page::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 2px; }
+
+      #in-app .in-module { border-bottom: 1px solid #141414; }
+      #in-app .in-module:last-child { border-bottom: none; }
+      #in-app .in-module-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 11px 2px;
+        font-size: 12px; color: #d1d1d1; font-weight: 300;
+        cursor: default;
+      }
+      #in-app .in-module-row[data-toggle] { cursor: pointer; }
+      #in-app .in-module-row .in-label { flex: 1; }
+      #in-app .in-chevron {
+        width: 10px; height: 10px; color: #555;
+        transition: transform 0.25s ease, color 0.2s;
+        flex-shrink: 0;
+      }
+      #in-app .in-module.expanded .in-chevron { transform: rotate(180deg); color: var(--in-accent); }
+      #in-app .in-module-details {
+        max-height: 0; overflow: hidden;
+        transition: max-height 0.3s ease;
+      }
+      #in-app .in-module.expanded .in-module-details { max-height: 600px; }
+      #in-app .in-details-inner {
+        padding: 0 2px 12px;
+        display: flex; flex-direction: column; gap: 10px;
+      }
+      #in-app .in-detail-row {
+        display: flex; align-items: center; justify-content: space-between;
+        font-size: 11px; color: #888; font-weight: 300; gap: 8px;
+      }
+      #in-app .in-detail-row .in-label { flex: 1; }
+      #in-app .in-hint { font-size: 9px; color: #555; font-weight: 300; margin-left: 4px; }
+
+      #in-app .in-switch { position: relative; width: 28px; height: 15px; flex-shrink: 0; }
+      #in-app .in-switch input { opacity: 0; width: 0; height: 0; }
+      #in-app .in-slider { position: absolute; cursor: pointer; inset: 0; background: #141414; transition: .2s; border-radius: 20px; border: 1px solid #262626; }
+      #in-app .in-slider:before { position: absolute; content: ""; height: 9px; width: 9px; left: 2px; top: 2px; background: #666; transition: .2s; border-radius: 50%; }
+      #in-app input:checked + .in-slider { background: var(--in-accent); border-color: var(--in-accent); }
+      #in-app input:checked + .in-slider:before { transform: translateX(13px); background: #000; }
+
+      #in-app .in-range { width: 110px; -webkit-appearance: none; appearance: none; background: #141414; height: 2px; border-radius: 1px; outline: none; }
+      #in-app .in-range::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--in-accent); cursor: pointer; border: none; }
+      #in-app .in-val { color: #888; min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; font-size: 10px; font-weight: 300; }
+
+      #in-app .in-select {
+        background: #141414;
+        border: 1px solid #262626;
+        color: #d1d1d1;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 10px;
+        font-weight: 300;
+        cursor: pointer;
+        outline: none;
+      }
+      #in-app .in-select:hover { border-color: #333; }
+      #in-app .in-select:focus { border-color: var(--in-accent); }
+      #in-app .in-select option { background: #0a0908; color: #d1d1d1; }
+
+      #in-app .in-settings-section {
+        padding: 8px 2px;
+        border-bottom: 1px solid #141414;
+      }
+      #in-app .in-settings-section:last-child { border-bottom: none; }
+      #in-app .in-section-title {
+        font-size: 9px; color: #555;
+        text-transform: uppercase; letter-spacing: 1.2px;
+        margin-bottom: 10px; font-weight: 300;
+      }
+      #in-app .in-hue {
+        position: relative; width: 100%; height: 8px;
+        border-radius: 4px; cursor: pointer;
+        background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+      }
+      #in-app .in-hue-cursor {
+        position: absolute; top: 50%;
+        width: 12px; height: 12px; border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+      #in-app .in-color-info {
+        display: flex; align-items: center; gap: 8px;
+        margin-top: 8px; font-size: 10px; color: #888; font-weight: 300;
+      }
+      #in-app .in-color-swatch {
+        width: 14px; height: 14px; border-radius: 3px;
+        border: 1px solid #262626;
+      }
+
+      #in-app .in-btn {
+        background: transparent;
+        border: 1px solid #262626;
+        color: #a39e9a;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 10px; font-weight: 300;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+        font-family: inherit;
+      }
+      #in-app .in-btn:hover { border-color: var(--in-accent); color: var(--in-accent); }
+
+      #in-app .in-about {
+        font-size: 10px; color: #666;
+        line-height: 1.8; font-weight: 300;
+      }
+      #in-app .in-about strong { color: #aaa; font-weight: 400; }
+      `;
+      document.head.appendChild(s);
+    }
+
+    render() {
+      const app = document.createElement('div');
+      app.id = 'in-app';
+      if (this.settings.x !== null && this.settings.y !== null) {
+        const pad = 4;
+        const maxX = Math.max(pad, window.innerWidth - 60 - pad);
+        const maxY = Math.max(pad, window.innerHeight - 40 - pad);
+        const nx = Math.max(pad, Math.min(maxX, this.settings.x));
+        const ny = Math.max(pad, Math.min(maxY, this.settings.y));
+        app.style.left = nx + 'px';
+        app.style.top = ny + 'px';
+        this.settings.x = nx;
+        this.settings.y = ny;
+      } else {
+        app.style.right = '20px';
+        app.style.bottom = '20px';
+      }
+      app.style.opacity = this.settings.opacity;
+
+      app.innerHTML = `
+        <div class="in-collapse-strip">
+          <svg class="in-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="in-upper">
+          <div class="in-topbar">
+            <div class="in-tabs-row">
+              <div class="in-tabs">
+                <div class="in-pill"></div>
+                <button class="in-tab active" data-tab="attack">Attack</button>
+                <button class="in-tab" data-tab="visuals">Visuals</button>
+                <button class="in-tab" data-tab="misc">Misc</button>
+              </div>
+            </div>
+            <div class="in-actions">
+              <button class="in-icon-btn" id="in-settings-btn" title="Настройки">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              </button>
+              <button class="in-icon-btn" id="in-collapse-btn" title="Свернуть">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="in-body">
+          <div class="in-pages">
+            <div class="in-page" data-page="attack">${this.renderAttack()}</div>
+            <div class="in-page" data-page="visuals">${this.renderVisuals()}</div>
+            <div class="in-page" data-page="misc">${this.renderMisc()}</div>
+            <div class="in-page" data-page="settings">${this.renderSettings()}</div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(app);
+      this.el = app;
+      this.bindEvents();
+      requestAnimationFrame(() => this.updatePill());
+    }
+
+    renderAttack() {
+      const s = this.settings;
+      return `
+        <div class="in-module ${this.expanded.detector ? 'expanded' : ''}">
+          <div class="in-module-row" data-toggle="detector">
+            <svg class="in-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <span class="in-label">Детектор</span>
+            <label class="in-switch" onclick="event.stopPropagation()"><input type="checkbox" data-key="detector" ${s.detector ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+          <div class="in-module-details">
+            <div class="in-details-inner">
+              <div class="in-detail-row">
+                <span class="in-label">Глубина</span>
+                <select class="in-select" data-key="depth">
+                  <option value="auto" ${s.depth === 'auto' ? 'selected' : ''}>Auto</option>
+                  <option value="2" ${s.depth === '2' ? 'selected' : ''}>2</option>
+                  <option value="3" ${s.depth === '3' ? 'selected' : ''}>3</option>
+                  <option value="4" ${s.depth === '4' ? 'selected' : ''}>4</option>
+                  <option value="5" ${s.depth === '5' ? 'selected' : ''}>5</option>
+                  <option value="6" ${s.depth === '6' ? 'selected' : ''}>6</option>
+                  <option value="7" ${s.depth === '7' ? 'selected' : ''}>7</option>
+                </select>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Предикты <span class="in-hint">может увеличить время сканирования</span></span>
+                <label class="in-switch"><input type="checkbox" data-key="predicts" ${s.predicts ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="in-module ${this.expanded.auto ? 'expanded' : ''}" data-module="auto">
+          <div class="in-module-row" data-toggle="auto">
+            <svg class="in-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <span class="in-label">Авто-ход</span>
+            <label class="in-switch" onclick="event.stopPropagation()"><input type="checkbox" data-key="auto" ${s.auto ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+          <div class="in-module-details">
+            <div class="in-details-inner">
+              <div class="in-detail-row">
+                <span class="in-label">Рандом КД</span>
+                <label class="in-switch"><input type="checkbox" data-key="rnd" ${s.rnd ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Мин</span>
+                <input type="range" class="in-range" data-key="rndMin" min="0.5" max="5" step="0.5" value="${s.rndMin}">
+                <span class="in-val" data-val="rndMin">${s.rndMin}с</span>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Макс</span>
+                <input type="range" class="in-range" data-key="rndMax" min="1" max="10" step="0.5" value="${s.rndMax}">
+                <span class="in-val" data-val="rndMax">${s.rndMax}с</span>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Задержка</span>
+                <input type="range" class="in-range" data-key="delay" min="0.5" max="6" step="0.5" value="${s.delay}">
+                <span class="in-val" data-val="delay">${s.delay}с</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    renderVisuals() {
+      const s = this.settings;
+      return `
+        <div class="in-module">
+          <div class="in-module-row">
+            <span class="in-label">Eval Bar</span>
+            <label class="in-switch"><input type="checkbox" data-key="evalBar" ${s.evalBar ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+        </div>
+        <div class="in-module">
+          <div class="in-module-row">
+            <span class="in-label">Тепловая карта</span>
+            <label class="in-switch"><input type="checkbox" data-key="heatmap" ${s.heatmap ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+        </div>
+        <div class="in-module">
+          <div class="in-module-row">
+            <span class="in-label">Показ мыслей</span>
+            <label class="in-switch"><input type="checkbox" data-key="thoughts" ${s.thoughts ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+        </div>
+        <div class="in-module">
+          <div class="in-module-row">
+            <span class="in-label">Альт. ходы</span>
+            <label class="in-switch"><input type="checkbox" data-key="alts" ${s.alts ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+        </div>
+        <div class="in-module ${this.expanded.al ? 'expanded' : ''}">
+          <div class="in-module-row" data-toggle="al">
+            <svg class="in-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <span class="in-label">Array List</span>
+            <label class="in-switch" onclick="event.stopPropagation()"><input type="checkbox" data-key="arrayList" ${s.arrayList ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+          <div class="in-module-details">
+            <div class="in-details-inner">
+              <div class="in-detail-row">
+                <span class="in-label">Стиль</span>
+                <select class="in-select" data-key="arrayListStyle">
+                  <option value="inroute" ${s.arrayListStyle === 'inroute' ? 'selected' : ''}>Inroute</option>
+                  <option value="celestial" ${s.arrayListStyle === 'celestial' ? 'selected' : ''}>Celestial</option>
+                </select>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Позиция</span>
+                <select class="in-select" data-key="arrayListPos">
+                  <option value="top-left" ${s.arrayListPos === 'top-left' ? 'selected' : ''}>Слева</option>
+                  <option value="top-right" ${s.arrayListPos === 'top-right' ? 'selected' : ''}>Справа</option>
+                </select>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Скобки</span>
+                <select class="in-select" data-key="arrayListBrackets">
+                  <option value="[]" ${s.arrayListBrackets === '[]' ? 'selected' : ''}>[ ]</option>
+                  <option value="{}" ${s.arrayListBrackets === '{}' ? 'selected' : ''}>{ }</option>
+                  <option value="()" ${s.arrayListBrackets === '()' ? 'selected' : ''}>( )</option>
+                </select>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Glow эффект</span>
+                <label class="in-switch"><input type="checkbox" data-key="arrayListGlow" ${s.arrayListGlow ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Переливание</span>
+                <label class="in-switch"><input type="checkbox" data-key="arrayListRainbow" ${s.arrayListRainbow ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="in-module ${this.expanded.wm ? 'expanded' : ''}">
+          <div class="in-module-row" data-toggle="wm">
+            <svg class="in-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <span class="in-label">Watermark</span>
+            <label class="in-switch" onclick="event.stopPropagation()"><input type="checkbox" data-key="watermark" ${s.watermark ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+          <div class="in-module-details">
+            <div class="in-details-inner">
+              <div class="in-detail-row">
+                <span class="in-label">Стиль</span>
+                <select class="in-select" data-key="watermarkStyle">
+                  <option value="inroute" ${s.watermarkStyle === 'inroute' ? 'selected' : ''}>Inroute</option>
+                  <option value="rich" ${s.watermarkStyle === 'rich' ? 'selected' : ''}>Rich</option>
+                </select>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Показывать функций</span>
+                <label class="in-switch"><input type="checkbox" data-key="watermarkShowFeatures" ${s.watermarkShowFeatures ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Показывать ходы</span>
+                <label class="in-switch"><input type="checkbox" data-key="watermarkShowMoves" ${s.watermarkShowMoves ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Показывать винрейт</span>
+                <label class="in-switch"><input type="checkbox" data-key="watermarkShowWinrate" ${s.watermarkShowWinrate ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="in-module ${this.expanded.notif ? 'expanded' : ''}">
+          <div class="in-module-row" data-toggle="notif">
+            <svg class="in-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            <span class="in-label">Notifications</span>
+            <label class="in-switch" onclick="event.stopPropagation()"><input type="checkbox" data-key="notifEnabled" ${s.notifEnabled ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+          <div class="in-module-details">
+            <div class="in-details-inner">
+              <div class="in-detail-row">
+                <span class="in-label">Стиль</span>
+                <select class="in-select" data-key="notifStyle">
+                  <option value="inroute" ${s.notifStyle === 'inroute' ? 'selected' : ''}>Inroute</option>
+                  <option value="celestial" ${s.notifStyle === 'celestial' ? 'selected' : ''}>Celestial</option>
+                </select>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Calc (анализ)</span>
+                <label class="in-switch"><input type="checkbox" data-key="notifCalc" ${s.notifCalc ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Success</span>
+                <label class="in-switch"><input type="checkbox" data-key="notifSuccess" ${s.notifSuccess ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Info</span>
+                <label class="in-switch"><input type="checkbox" data-key="notifInfo" ${s.notifInfo ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+              <div class="in-detail-row">
+                <span class="in-label">Error</span>
+                <label class="in-switch"><input type="checkbox" data-key="notifError" ${s.notifError ? 'checked' : ''}><span class="in-slider"></span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    renderMisc() {
+      const s = this.settings;
+      return `
+        <div class="in-module">
+          <div class="in-module-row">
+            <span class="in-label">VO Озвучка</span>
+            <label class="in-switch"><input type="checkbox" data-key="vo" ${s.vo ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+        </div>
+        <div class="in-module">
+          <div class="in-module-row">
+            <span class="in-label">Name Protect</span>
+            <label class="in-switch"><input type="checkbox" data-key="protect" ${s.protect ? 'checked' : ''}><span class="in-slider"></span></label>
+          </div>
+        </div>
+      `;
+    }
+
+    renderSettings() {
+      const [h] = rgbToHsv(
+        parseInt(this.settings.color.slice(1, 3), 16),
+        parseInt(this.settings.color.slice(3, 5), 16),
+        parseInt(this.settings.color.slice(5, 7), 16)
+      );
+      return `
+        <div class="in-settings-section">
+          <div class="in-section-title">Акцент</div>
+          <div class="in-hue" data-hue>
+            <div class="in-hue-cursor" data-hue-cursor style="left:${h * 100}%;"></div>
+          </div>
+          <div class="in-color-info">
+            <div class="in-color-swatch" data-swatch style="background:${this.settings.color};"></div>
+            <span data-color-hex>${this.settings.color}</span>
+          </div>
+        </div>
+        <div class="in-settings-section">
+          <div class="in-section-title">Прозрачность</div>
+          <div class="in-detail-row">
+            <span class="in-label">Окно</span>
+            <input type="range" class="in-range" data-key="opacity" min="0.3" max="1" step="0.05" value="${this.settings.opacity}">
+            <span class="in-val" data-val="opacity">${Math.round(this.settings.opacity * 100)}%</span>
+          </div>
+        </div>
+        <div class="in-settings-section">
+          <div class="in-section-title">Сброс</div>
+          <button class="in-btn" id="in-reset-btn">Сбросить все настройки</button>
+        </div>
+        <div class="in-settings-section">
+          <div class="in-section-title">О плагине</div>
+          <div class="in-about">
+            <div><strong>InChess</strong> v0.5.0</div>
+            <div>Разработчик: <strong>Verno</strong></div>
+          </div>
+        </div>
+      `;
+    }
+
+    bindEvents() {
+      const app = this.el;
+      const pagesEl = app.querySelector('.in-pages');
+      const tabs = app.querySelectorAll('.in-tab');
+
+      const tabOrder = ['attack', 'visuals', 'misc', 'settings'];
+
+      const switchTab = (name) => {
+        if (name === this.currentTab) return;
+        this.currentTab = name;
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+        const idx = tabOrder.indexOf(name);
+        pagesEl.style.transform = `translateX(${-idx * 25}%)`;
+        this.updatePill();
+      };
+
+      tabs.forEach(t => {
+        t.onclick = (e) => { e.stopPropagation(); switchTab(t.dataset.tab); };
+      });
+
+      app.querySelector('#in-settings-btn').onclick = (e) => {
+        e.stopPropagation();
+        switchTab('settings');
+      };
+
+      app.querySelector('#in-collapse-btn').onclick = (e) => {
+        e.stopPropagation();
+        this.setCollapsed(true);
+      };
+
+      app.querySelector('.in-collapse-strip').onclick = (e) => {
+        if (e.target.closest('.in-collapse-strip') && !this._didDrag) {
+          this.setCollapsed(false);
+        }
+      };
+
+      let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0, lastMoveT = 0;
+      this._didDrag = false;
+
+      const clampPos = (nx, ny) => {
+        const r = app.getBoundingClientRect();
+        const pad = 4;
+        const maxX = Math.max(pad, window.innerWidth - r.width - pad);
+        const maxY = Math.max(pad, window.innerHeight - r.height - pad);
+        return [Math.max(pad, Math.min(maxX, nx)), Math.max(pad, Math.min(maxY, ny))];
+      };
+
+      const onDown = (e) => {
+        if (e.target.closest('.in-tab') || e.target.closest('.in-icon-btn') || e.target.closest('.in-switch') || e.target.closest('input') || e.target.closest('select')) return;
+        if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+        dragging = true;
+        this._didDrag = false;
+        startX = e.clientX; startY = e.clientY;
+        const r = app.getBoundingClientRect();
+        origX = r.left; origY = r.top;
+        app.style.left = origX + 'px';
+        app.style.top = origY + 'px';
+        app.style.right = 'auto';
+        app.style.bottom = 'auto';
+        lastMoveT = 0;
+        if (e.pointerType === 'touch') {
+          try { e.target.setPointerCapture(e.pointerId); } catch (_) { }
+        }
+        e.preventDefault();
+      };
+
+      const onMove = (e) => {
+        if (!dragging) return;
+        const now = performance.now();
+        if (now - lastMoveT < 8) return;
+        lastMoveT = now;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) this._didDrag = true;
+        const [nx, ny] = clampPos(origX + dx, origY + dy);
+        app.style.left = nx + 'px';
+        app.style.top = ny + 'px';
+        this.settings.x = nx;
+        this.settings.y = ny;
+        if (e.cancelable) e.preventDefault();
+      };
+
+      const finishDrag = (save) => {
+        if (!dragging) return;
+        dragging = false;
+        const r = app.getBoundingClientRect();
+        const [nx, ny] = clampPos(r.left, r.top);
+        if (nx !== r.left || ny !== r.top) {
+          app.style.left = nx + 'px';
+          app.style.top = ny + 'px';
+          this.settings.x = nx;
+          this.settings.y = ny;
+        }
+        if (this._didDrag) this.save();
+        setTimeout(() => { this._didDrag = false; }, 60);
+      };
+
+      const onUp = () => finishDrag(true);
+      const onCancel = () => finishDrag(true);
+
+      const strip = app.querySelector('.in-collapse-strip');
+      strip.addEventListener('pointerdown', onDown);
+      app.querySelector('.in-topbar').addEventListener('pointerdown', onDown);
+      window.addEventListener('pointermove', onMove, { passive: false });
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('touchmove', (e) => {
+        if (dragging && e.cancelable) e.preventDefault();
+      }, { passive: false });
+
+      app.addEventListener('mousemove', () => {
+        if (this.collapsed) {
+          this.el.classList.remove('in-idle');
+          this.startIdleTimer();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.altKey && (e.key === 'i' || e.key === 'I' || e.code === 'KeyI')) {
+          e.preventDefault();
+          this.toggleHidden();
+        }
+      });
+
+      app.querySelectorAll('[data-toggle]').forEach(row => {
+        row.onclick = (e) => {
+          if (e.target.closest('.in-switch') || e.target.closest('input') || e.target.closest('select')) return;
+          const key = row.dataset.toggle;
+          this.expanded[key] = !this.expanded[key];
+          row.closest('.in-module').classList.toggle('expanded', this.expanded[key]);
+        };
+      });
+
+      app.querySelectorAll('input[type="checkbox"][data-key]').forEach(inp => {
+        inp.onchange = () => {
+          const key = inp.dataset.key;
+          this.update(key, inp.checked);
+          if (key === 'evalBar' && this.evalBar) {
+            if (inp.checked) this.evalBar.show();
+            else this.evalBar.hide();
+          }
+          if (key === 'thoughts' && !inp.checked) window.InChess.ui.viz.clearThought();
+          if (key === 'heatmap' && !inp.checked) window.InChess.ui.viz.clearHeatmap();
+          if (key === 'arrayList' && !inp.checked) {
+            const al = document.getElementById('in-arraylist');
+            if (al) al.style.display = 'none';
+          }
+          if (key === 'watermark' && !inp.checked) {
+            const wm = document.getElementById('in-watermark');
+            if (wm) wm.style.display = 'none';
+          }
+        };
+      });
+
+      app.querySelectorAll('select[data-key]').forEach(sel => {
+        sel.onchange = () => {
+          const key = sel.dataset.key;
+          this.update(key, sel.value);
+        };
+      });
+
+      app.querySelectorAll('input[type="range"][data-key]').forEach(inp => {
+        inp.oninput = () => {
+          const key = inp.dataset.key;
+          const val = parseFloat(inp.value);
+          this.update(key, val);
+          const valEl = app.querySelector(`[data-val="${key}"]`);
+          if (valEl) {
+            if (key === 'opacity') valEl.textContent = Math.round(val * 100) + '%';
+            else valEl.textContent = val + 'с';
+          }
+          if (key === 'opacity') app.style.opacity = val;
+          if (key === 'rndMin' || key === 'rndMax') {
+            if (this.settings.rndMin > this.settings.rndMax) {
+              this.settings.rndMax = this.settings.rndMin;
+              const maxEl = app.querySelector('input[data-key="rndMax"]');
+              const maxVal = app.querySelector('[data-val="rndMax"]');
+              if (maxEl) maxEl.value = this.settings.rndMax;
+              if (maxVal) maxVal.textContent = this.settings.rndMax + 'с';
+            }
+          }
+        };
+      });
+
+      app.querySelector('#in-reset-btn').onclick = () => {
+        if (!confirm('Сбросить все настройки?')) return;
+        chrome.storage.local.remove('in_sets');
+        location.reload();
+      };
+
+      const hue = app.querySelector('[data-hue]');
+      const hueCursor = app.querySelector('[data-hue-cursor]');
+      const swatch = app.querySelector('[data-swatch]');
+      const hexEl = app.querySelector('[data-color-hex]');
+
+      let hsv = rgbToHsv(
+        parseInt(this.settings.color.slice(1, 3), 16),
+        parseInt(this.settings.color.slice(3, 5), 16),
+        parseInt(this.settings.color.slice(5, 7), 16)
+      );
+
+      const applyHue = (save) => {
+        const [r, g, b] = hsvToRgb(hsv[0], 1, 1);
+        const hex = rgbToHex(r, g, b);
+        this.settings.color = hex;
+        this.updateTheme(hex);
+        swatch.style.background = hex;
+        hexEl.textContent = hex;
+        hueCursor.style.left = (hsv[0] * 100) + '%';
+        if (save) this.save();
+      };
+
+      const hueMove = (e) => {
+        const r = hue.getBoundingClientRect();
+        let x = (e.clientX - r.left) / r.width;
+        x = Math.max(0, Math.min(1, x));
+        hsv[0] = x;
+        applyHue(false);
+      };
+
+      let hueDown = false;
+      hue.addEventListener('pointerdown', (e) => {
+        hueDown = true;
+        hue.setPointerCapture(e.pointerId);
+        hueMove(e);
+      });
+      hue.addEventListener('pointermove', (e) => { if (hueDown) hueMove(e); });
+      hue.addEventListener('pointerup', () => { hueDown = false; applyHue(true); });
+    }
+
+    updatePill() {
+      const app = this.el;
+      if (!app) return;
+      const activeTab = app.querySelector('.in-tab.active');
+      const pill = app.querySelector('.in-pill');
+      if (!activeTab || !pill) return;
+      pill.style.width = activeTab.offsetWidth + 'px';
+      pill.style.transform = `translateX(${activeTab.offsetLeft - 2}px)`;
+    }
+
+    setCollapsed(v) {
+      if (!this.el) return;
+      if (this.settings.collapsed !== v) {
+        this.settings.collapsed = v;
+        this.save();
+      }
+      this.collapsed = v;
+      this.el.classList.toggle('collapsed', v);
+      if (v) this.startIdleTimer();
+      else { this.stopIdleTimer(); this.el.classList.remove('in-idle'); }
+
+      const app = this.el;
+      const pad = 4;
+      const FULL_W = Math.min(600, Math.floor(window.innerWidth * 0.92));
+      const FULL_H = Math.min(400, Math.floor(window.innerHeight * 0.70));
+
+      const before = app.getBoundingClientRect();
+
+      if (!v) {
+        let nx = before.left;
+        let ny = before.top;
+        let dirX = 0;
+        let dirY = 0;
+
+        if (nx + FULL_W > window.innerWidth - pad) {
+          nx = window.innerWidth - FULL_W - pad;
+          dirX = +1;
+        }
+        nx = Math.max(pad, nx);
+
+        if (ny + FULL_H > window.innerHeight - pad) {
+          ny = window.innerHeight - FULL_H - pad;
+          dirY = +1;
+        }
+        ny = Math.max(pad, ny);
+
+        app.style.right = 'auto';
+        app.style.bottom = 'auto';
+        app.style.left = nx + 'px';
+        app.style.top = ny + 'px';
+        this.settings.x = nx;
+        this.settings.y = ny;
+        this.save();
+        const distX = dirX * (FULL_W * 0.6);
+        const distY = dirY * (FULL_H * 0.6);
+
+        if (distX !== 0 || distY !== 0) {
+          app.animate(
+            [
+              { transform: `translate(${distX}px, ${distY}px)`, opacity: 0.2 },
+              { transform: 'translate(0, 0)', opacity: 1 }
+            ],
+            {
+              duration: 320,
+              easing: 'cubic-bezier(0.18, 0.89, 0.32, 1.28)',
+              fill: 'none'
+            }
+          );
+        } else {
+          app.animate(
+            [
+              { transform: 'scale(0.92)', opacity: 0.6 },
+              { transform: 'scale(1)', opacity: 1 }
+            ],
+            {
+              duration: 260,
+              easing: 'cubic-bezier(0.18, 0.89, 0.32, 1.28)',
+              fill: 'none'
+            }
+          );
+        }
+      } else {
+        const CIRCLE = 40;
+        const maxX = Math.max(pad, window.innerWidth - CIRCLE - pad);
+        const maxY = Math.max(pad, window.innerHeight - CIRCLE - pad);
+        const nx = Math.max(pad, Math.min(maxX, before.left));
+        const ny = Math.max(pad, Math.min(maxY, before.top));
+
+        if (nx !== before.left || ny !== before.top) {
+          app.style.right = 'auto';
+          app.style.bottom = 'auto';
+          app.style.left = nx + 'px';
+          app.style.top = ny + 'px';
+          this.settings.x = nx;
+          this.settings.y = ny;
+          this.save();
+        }
+      }
+    }
+
+    startIdleTimer() {
+      this.stopIdleTimer();
+      this.idleTimer = setTimeout(() => {
+        if (this.collapsed && !this.hidden) this.el.classList.add('in-idle');
+      }, 4000);
+    }
+
+    stopIdleTimer() {
+      if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+    }
+
+    toggleHidden() {
+      if (!this.el) return;
+      this.hidden = !this.hidden;
+      this.el.classList.toggle('in-hidden', this.hidden);
+      if (this.hidden) this.stopIdleTimer();
+      else if (this.collapsed) this.startIdleTimer();
+    }
+
+    save() {
+      chrome.storage.local.set({ in_sets: this.settings });
+      chrome.runtime.sendMessage({ type: 'SETTINGS_CHANGED', settings: this.settings });
+    }
+
+    update(key, val) {
+      this.settings[key] = val;
+      this.save();
+    }
+  }
+
+  const notifier = new Notifier();
+  const viz = new Viz();
+  const evalBar = new EvalBar();
+  const arrayList = new ArrayList();
+  const watermark = new Watermark();
+  const menu = new Menu();
+
+  menu.evalBar = evalBar;
+  evalBar.getMenu = () => menu;
+  notifier.getMenu = () => menu;
+  arrayList.getMenu = () => menu;
+  watermark.getMenu = () => menu;
+
+  return { notifier, viz, evalBar, menu, arrayList, watermark, hexToRgb, Notifier, Viz, EvalBar, Menu, ArrayList, Watermark };
+})();

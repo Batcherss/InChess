@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "InChess",
+  "description": "Запеним магнуса!",
+  "version": "1.110",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.chess.com/*"
+      ],
+      "js": [
+        "content/fen.js",
+        "content/ui/theme.js",
+        "content/ui/notifier.js",
+        "content/ui/viz.js",
+        "content/ui/evalbar.js",
+        "content/ui/arraylist.js",
+        "content/ui/watermark.js",
+        "content/ui/menu.js",
+        "content/ui/index.js",
+        "content/extra.js",
+        "content/main.js"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "background/core.js"
+  },
+  "host_permissions": [],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*",
+        "vo/*"
+      ],
+      "matches": [
+        "*://*.chess.com/*"
+      ]
+    }
+  ]
+}
